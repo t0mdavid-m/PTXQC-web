@@ -354,6 +354,20 @@ class StreamlitUI:
         cwd = self._resolve_browser_cwd(key, mount_root)
         sess_cwd_key = f"mounted_cwd_{key}"
 
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stButton"] button[kind="tertiary"] {
+                padding-top: 0.15rem;
+                padding-bottom: 0.15rem;
+                min-height: 0;
+                line-height: 1.3;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         with st.container(border=True):
             st.markdown(
                 f"**Add {name} files from mounted directory** "
@@ -421,7 +435,8 @@ class StreamlitUI:
             files = [p for p in entries if p.is_file() and _is_match(p)]
 
             for d in subdirs:
-                if st.button(
+                indent, body = st.columns([1, 60], vertical_alignment="center")
+                if body.button(
                     f"📂 {d.name}/",
                     key=f"mounted_dir_{key}_{d.name}",
                     type="tertiary",
