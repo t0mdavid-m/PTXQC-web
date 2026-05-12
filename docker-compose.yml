@@ -12,9 +12,17 @@ services:
       - 8501:8501
     volumes:
       - workspaces-streamlit-template:/workspaces-streamlit-template
+      # Optional: mount a host directory of MS data files and expose it to the
+      # in-app file browser by setting LOCAL_DATA_DIR (below) to the container
+      # path. Uncomment and adjust the host path to enable.
+      # - /path/on/host:/mounted-data:ro
     environment:
       # Number of Streamlit server instances (default: 1 = no load balancer).
       # Set to >1 to enable nginx load balancing across multiple Streamlit instances.
       - STREAMLIT_SERVER_COUNT=1
+      # Optional: when set to an existing directory inside the container, the
+      # upload widget shows a tree browser for that directory and references
+      # picked files in place (no copy into the workspace volume).
+      # - LOCAL_DATA_DIR=/mounted-data
 volumes:
   workspaces-streamlit-template:
