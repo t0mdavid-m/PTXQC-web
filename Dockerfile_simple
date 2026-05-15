@@ -62,6 +62,12 @@ RUN mamba install pip
 RUN python -m pip install --upgrade pip
 RUN python -m pip install -r requirements.txt
 
+# Pre-create bind-mount targets so apptainer/singularity has a real attach
+# point. Docker auto-creates missing `-v` targets, but singularity uses a
+# read-only underlay and silently ignores `:rw` when the target isn't a
+# real directory in the SIF — writes then fail with EROFS even though the
+# host bind path is writable.
+RUN mkdir -p /workspaces-streamlit-template /mounted-data
 
 # create workdir and copy over all streamlit related files/folders
 WORKDIR /app

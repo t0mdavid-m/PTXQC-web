@@ -142,7 +142,16 @@ jobs:
           sudo apptainer build /tmp/openms.sif docker-archive:///tmp/image.tar
           sudo chmod a+r /tmp/openms.sif
 
-      - name: Start apptainer instance (read-only root, host UID)
+      - name: Prepare host bind dirs (mountpoint contract)
+        run: |
+          # Host paths we'll bind into the SIF. Asserting writability through
+          # singularity's bind machinery requires that the destination paths
+          # exist as real directories in the squashfs (otherwise singularity
+          # silently degrades the bind to read-only via underlay).
+          mkdir -p /tmp/host-workspaces /tmp/host-mounted-data
+          echo "from-host-pretest" > /tmp/host-mounted-data/sentinel.txt
+
+      - name: Start apptainer instance (read-only root, host UID, with binds)
         run: |
           # Default apptainer semantics: read-only root, no --writable-tmpfs.
           # This matches how users on HPC clusters run the SIF.
@@ -151,7 +160,10 @@ jobs:
           # Docker ENTRYPOINT but leaves %startscript as the default no-op
           # `exec "$@"`. `instance start` would launch an empty instance and
           # streamlit would never bind 8501.
-          apptainer instance run /tmp/openms.sif openms-test
+          apptainer instance run \
+            --bind /tmp/host-workspaces:/workspaces-streamlit-template:rw \
+            --bind /tmp/host-mounted-data:/mounted-data:ro \
+            /tmp/openms.sif openms-test
           apptainer instance list
           # Record where this run's logs will land so subsequent steps can tail
           # them deterministically (path depends on hostname/user).
@@ -194,6 +206,19 @@ jobs:
         if: matrix.variant == 'full'
         run: |
           apptainer exec instance://openms-test redis-cli ping | grep -i pong
+
+      - name: Verify bind mount is writable (workspaces) and readable (data)
+        run: |
+          # The whole point of pre-creating /workspaces-streamlit-template
+          # and /mounted-data in the image: singularity now has a real
+          # attach point and `:rw` actually sticks. Without the mkdir,
+          # `apptainer exec ... touch` here would fail with EROFS.
+          apptainer exec instance://openms-test sh -c \
+            'echo from-container > /workspaces-streamlit-template/probe.txt'
+          test -f /tmp/host-workspaces/probe.txt
+          grep -q from-container /tmp/host-workspaces/probe.txt
+          # Read-only data mount should also be visible inside the container.
+          apptainer exec instance://openms-test grep -q from-host-pretest /mounted-data/sentinel.txt
 
       - name: Dump entrypoint logs on failure
         if: failure()

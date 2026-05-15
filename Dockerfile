@@ -133,6 +133,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends redis-server ng
 # never written under apptainer.
 RUN mkdir -p /var/lib/redis
 
+# Pre-create bind-mount targets so apptainer/singularity has a real attach
+# point. Docker auto-creates missing `-v` targets, but singularity uses a
+# read-only underlay and silently ignores `:rw` when the target isn't a
+# real directory in the SIF — writes then fail with EROFS even though the
+# host bind path is writable. Pre-creating these directories costs one
+# inode each and changes nothing in docker mode (the user's volume mount
+# shadows them).
+RUN mkdir -p /workspaces-streamlit-template /mounted-data
+
 # Create workdir and copy over all streamlit related files/folders.
 
 # note: specifying folder with slash as suffix and repeating the folder name seems important to preserve directory structure
