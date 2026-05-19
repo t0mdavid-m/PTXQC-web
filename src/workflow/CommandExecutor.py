@@ -5,7 +5,7 @@ import subprocess
 import threading
 from pathlib import Path
 from .Logger import Logger
-from .ParameterManager import ParameterManager
+from .ParameterManager import ParameterManager, bool_param_paths_from_param_xml_ini
 import sys
 import importlib.util
 import json
@@ -216,7 +216,7 @@ class CommandExecutor:
         stdout_thread.join()
         stderr_thread.join()
 
-    def run_topp(self, tool: str, input_output: dict, custom_params: dict = {}) -> bool:
+    def run_topp(self, tool: str, input_output: dict, custom_params: dict = {}, tool_instance_name: str = None) -> bool:
         """
         Constructs and executes commands for the specified tool OpenMS TOPP tool based on the given
         input and output configurations. Ensures that all input/output file lists
@@ -234,6 +234,10 @@ class CommandExecutor:
             tool (str): The executable name or path of the tool.
             input_output (dict): A dictionary specifying the input/output parameter names (as key) and their corresponding file paths (as value).
             custom_params (dict): A dictionary of custom parameters to pass to the tool.
+            tool_instance_name (str, optional): Key for ``params.json`` when it differs
+                from ``tool`` (e.g. multiple instances). Defaults to ``tool``.
+            Custom parameters whose keys appear in the tool's ParamXML ``type="bool"``
+            entries are passed as valueless CLI flags (``-name`` only when enabled).
 
         Returns:
             bool: True if all commands succeeded, False if any failed.
@@ -261,8 +265,15 @@ class CommandExecutor:
 
         commands = []
 
-        # Load parameters for non-defaults
         params = self.parameter_manager.get_parameters_from_json()
+
+        topp_tool_ini_path = Path(self.parameter_manager.ini_dir, f"{tool}.ini")
+        # Keys of type="bool" in the .ini: TOPP treats these as on/off flags (omit value when off)
+        topp_bool_flag_param_keys = (
+            bool_param_paths_from_param_xml_ini(topp_tool_ini_path, tool)
+            if topp_tool_ini_path.exists()
+            else set()
+        )
         # Construct commands for each process
         for i in range(n_processes):
             command = [tool]
@@ -284,6 +295,16 @@ class CommandExecutor:
             # Add non-default TOPP tool parameters
             if tool in params.keys():
                 for k, v in params[tool].items():
+                                   
+                    if k in topp_bool_flag_param_keys and v != "":
+                    # CLI flag: include "-k" only when enabled
+                        if isinstance(v, str):
+                            is_enabled = v.lower() == "true"
+                        else:
+                            is_enabled = bool(v)
+                        if is_enabled:
+                            command += [f"-{k}"]
+                        continue
                     command += [f"-{k}"]
                     # Skip only empty strings (pass flag with no value)
                     # Note: 0 and 0.0 are valid values, so use explicit check
@@ -295,6 +316,7 @@ class CommandExecutor:
             # Add custom parameters
             for k, v in custom_params.items():
                 command += [f"-{k}"]
+                
                 # Skip only empty strings (pass flag with no value)
                 # Note: 0 and 0.0 are valid values, so use explicit check
                 if v != "" and v is not None:
