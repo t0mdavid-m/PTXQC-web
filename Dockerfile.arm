@@ -94,11 +94,15 @@ WORKDIR /openms-build
 # pick the miniforge yaml-cpp makes TOPP linking fail with
 #   undefined reference to `std::ios_base_library_init()@GLIBCXX_3.4.32`
 # amd64 happens to work because its conda-forge yaml-cpp build is older.
+# We call the mamba-env cmake by full path so we get a version >= 3.24
+# (OpenMS 3.5's floor); ubuntu:22.04's apt cmake is 3.22 which is too old.
+# CMAKE_IGNORE_PREFIX_PATH keeps cmake from auto-discovering miniforge libs
+# even though the binary itself lives there.
 # Pass 2 re-runs cmake inside the mamba env with PYOPENMS=ON so the Python
 # bindings can find the conda-forge Python/Cython/NumPy; CMAKE_IGNORE_PREFIX_PATH
 # keeps the C++ link command unchanged from pass 1.
 SHELL ["/bin/bash", "-c"]
-RUN cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DCMAKE_IGNORE_PREFIX_PATH=/root/miniforge3 -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF ../OpenMS
+RUN /root/miniforge3/envs/streamlit-env/bin/cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DCMAKE_IGNORE_PREFIX_PATH=/root/miniforge3 -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF ../OpenMS
 SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
 RUN cmake -DPYOPENMS=ON -DPY_MEMLEAK_DISABLE=On -DCMAKE_IGNORE_PREFIX_PATH=/root/miniforge3 .
 
