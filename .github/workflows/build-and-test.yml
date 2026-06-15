@@ -101,15 +101,17 @@ jobs:
 
       - name: Retag for kind (image name the kustomize overlay points at)
         run: |
-          # The prod overlay sets `newName: ghcr.io/openms/streamlit-template`,
-          # `newTag: main-simple`. The rendered manifests reference that exact
-          # ref, so we need it loaded into kind under that name. Tag invariant
-          # across branches/variants so the test always works.
+          # The prod overlay's images[0] (newName:newTag) is the exact ref the
+          # rendered manifests reference, so kind must have the built image
+          # loaded under that name. Discover it from the overlay instead of
+          # hardcoding, so this works for any fork's image ref.
+          OVERLAY_IMAGE="$(yq '.images[0].newName' k8s/overlays/prod/kustomization.yaml):$(yq '.images[0].newTag' k8s/overlays/prod/kustomization.yaml)"
+          echo "OVERLAY_IMAGE=$OVERLAY_IMAGE" >> "$GITHUB_ENV"
           FIRST_TAG=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
-          docker tag "$FIRST_TAG" ghcr.io/openms/streamlit-template:main-simple
+          docker tag "$FIRST_TAG" "$OVERLAY_IMAGE"
 
       - name: Save image as tar
-        run: docker save ghcr.io/openms/streamlit-template:main-simple -o /tmp/image.tar
+        run: docker save "$OVERLAY_IMAGE" -o /tmp/image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4

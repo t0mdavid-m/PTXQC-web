@@ -7,14 +7,14 @@ resources:
 components:
   - ../../components/memory-tier-low
 
-namePrefix: template-app-
+namePrefix: ptxqc-
 
 commonLabels:
-  app: template-app
+  app: ptxqc
 
 images:
   - name: openms-streamlit
-    newName: ghcr.io/openms/streamlit-template
+    newName: ghcr.io/bioinformaticssolutioncenter/ptxqc-web
     newTag: main-simple
 
 patches:
@@ -24,21 +24,21 @@ patches:
     patch: |
       - op: replace
         path: /spec/routes/0/match
-        value: (Host(`template.webapps.openms.de`) || Host(`template.webapps.openms.org`)) && PathPrefix(`/`)
+        value: (Host(`ptxqc.webapps.openms.de`) || Host(`ptxqc.webapps.openms.org`)) && PathPrefix(`/`)
       - op: replace
         path: /spec/routes/0/services/0/name
-        value: template-app-streamlit
+        value: ptxqc-streamlit
   - target:
       kind: Deployment
       name: streamlit
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
-        value: "redis://template-app-redis:6379/0"
+        value: "redis://ptxqc-redis:6379/0"
   - target:
       kind: Deployment
       name: rq-worker
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
-        value: "redis://template-app-redis:6379/0"
+        value: "redis://ptxqc-redis:6379/0"
