@@ -10,7 +10,6 @@ This repository contains a template app for OpenMS workflows in a web applicatio
 - Persistent parameters and input files within a workspace
 - local and online mode
 - Captcha control
-- Packaged executables for Windows
 - framework for workflows with OpenMS TOPP tools
 - Deployment [with docker-compose](https://github.com/OpenMS/streamlit-deployment)
 
@@ -47,9 +46,8 @@ To run the app locally:
 
 ## 🐳 Build with Docker
 
-This repository ships a single image, built from `Dockerfile_simple`: pyOpenMS (via pip)
-plus R + PTXQC, which is all this app needs. It is built for both amd64 (`Dockerfile_simple`)
-and arm64 (`Dockerfile_simple.arm`).
+This repository ships a single image, built from `Dockerfile_simple` (linux/amd64): pyOpenMS
+(via pip) plus R + PTXQC, which is all this app needs.
 
 1. **Install Docker**
 
@@ -78,15 +76,6 @@ and arm64 (`Dockerfile_simple.arm`).
    git clone https://github.com/OpenMS/streamlit-template.git
    cd streamlit-template
    ```
-   
-4. **Specify GitHub token (to download Windows executables).**
-   
-   Create a temporary `.env` file with your Github token.
-   
-   It should contain only one line:
-   `GITHUB_TOKEN=<your-github-token>`
-
-   ℹ️ **Note:** This step is not strictly required, but skipping it will remove the option to download executables from the WebApp.
    
 3. **Build & Launch the App**
 

@@ -29,19 +29,9 @@ Multiple streamlit apps based on the [OpenMS streamlit template](https://github.
 
 `git submodule update`
 
-**2. Specify GitHub token (to download Windows executables).**
-
-> This is **important**! Omitting this step while result in all apps not having the option to download executables any more.
-
-Create a temporary `.env` file with your Github token. It should contain only one line:
-
-`GITHUB_TOKEN=<your-github-token>`
-
-**3. Run docker-compose.**
+**2. Run docker-compose.**
 
 `docker-compose up --build -d`
-
-> Make sure to remove the `.env` file with your Github token after successful build
 
 ## Add new app
 

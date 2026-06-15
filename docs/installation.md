@@ -1,12 +1,5 @@
 # Installation
 
-## Windows
-
-The app is available as pre-packaged Windows executable, including all dependencies.
-
-The windows executable is built by a GitHub action and can be downloaded [here](https://github.com/OpenMS/streamlit-template/actions/workflows/build-windows-executable-app.yaml).
-Select the latest successfull run and download the zip file from the artifacts section, while signed in to GitHub.
-
 ## Python
 
 Clone the [streamlit-template repository](https://github.com/OpenMS/streamlit-template). It includes files to install dependencies via pip or conda.
@@ -40,9 +33,8 @@ To run the app locally:
 
 ## 🐳 Build with Docker
 
-This repository ships a single image, built from `Dockerfile_simple`: pyOpenMS (via pip)
-plus R + PTXQC, which is all this app needs. It is built for both amd64 (`Dockerfile_simple`)
-and arm64 (`Dockerfile_simple.arm`).
+This repository ships a single image, built from `Dockerfile_simple` (linux/amd64): pyOpenMS
+(via pip) plus R + PTXQC, which is all this app needs.
 
 1. **Install Docker**
 
@@ -71,15 +63,6 @@ and arm64 (`Dockerfile_simple.arm`).
    git clone https://github.com/OpenMS/streamlit-template.git
    cd streamlit-template
    ```
-   
-4. **Specify GitHub token (to download Windows executables).**
-   
-   Create a temporary `.env` file with your Github token.
-   
-   It should contain only one line:
-   `GITHUB_TOKEN=<your-github-token>`
-
-   ℹ️ **Note:** This step is not strictly required, but skipping it will remove the option to download executables from the WebApp.
    
 3. **Build & Launch the App**
 

@@ -178,7 +178,7 @@ Update `settings.json`, choose a Dockerfile, and update `README.md`. If you are 
 
 ### Step 2 — Let CI build the image
 
-Push your changes to `main` or create a tag. The workflow `.github/workflows/build-and-test.yml` builds the `Dockerfile_simple` image (for both amd64 and arm64) and pushes the multi-arch manifest to `ghcr.io/<your-org>/<your-repo>` with the tags `<branch>-simple`, `v<version>-simple`, and `<sha>-simple`. The unsuffixed `latest` tag tracks the `simple` image on `main`.
+Push your changes to `main` or create a tag. The workflow `.github/workflows/build-and-test.yml` builds the `Dockerfile_simple` image (linux/amd64) and pushes it to `ghcr.io/<your-org>/<your-repo>` with the tags `<branch>-simple`, `v<version>-simple`, and `<sha>-simple`. The unsuffixed `latest` tag tracks the `simple` image on `main`.
 
 ### Step 3 — Edit the production overlay
 
@@ -273,9 +273,9 @@ One unified workflow owns manifest lint, Docker build, push, and kind integratio
   - `kubeconform` runs against `k8s/base/*.yaml` with strict mode and Kubernetes 1.28 schemas (excluding `kustomization.yaml` and the Traefik CRD `traefik-ingressroute.yaml`).
   - `kubectl kustomize k8s/overlays/prod/` must succeed; the kustomized output is re-validated through `kubeconform` (with `IngressRoute` skipped).
   - Takes ~30s. Fails fast so manifest typos never trigger the hours-long full Docker build.
-- **Job 2 — `build`** (`needs: lint-manifests`, builds the `simple` image on amd64 + arm64, stitched into a multi-arch manifest):
-  - Builds `Dockerfile_simple` (amd64) and `Dockerfile_simple.arm` (arm64) — pyOpenMS + R/PTXQC.
-  - **Buildx registry cache** (`type=registry,…,mode=max`) stored at `ghcr.io/<repo>/cache:simple-amd64` and `:simple-arm64`. A `cache-from` read is attempted on every event; `cache-to` write only on push/tag/workflow_dispatch (fork PRs can't write). Repeat builds with an unchanged Dockerfile finish in minutes.
+- **Job 2 — `build`** (`needs: lint-manifests`, builds the `simple` image for linux/amd64):
+  - Builds `Dockerfile_simple` — pyOpenMS + R/PTXQC.
+  - **Buildx registry cache** (`type=registry,…,mode=max`) stored at `ghcr.io/<repo>/cache:simple-amd64`. A `cache-from` read is attempted on every event; `cache-to` write only on push/tag/workflow_dispatch (fork PRs can't write). Repeat builds with an unchanged Dockerfile finish in minutes.
   - **Push** on push/tag/workflow_dispatch events (not on PRs). Tags: `<branch>-simple`, `v<version>-simple`, `<sha>-simple`. `latest` is emitted for the `simple` image on push to `main`.
   - **Kind integration** runs per variant: creates a kind cluster, loads the just-built image, installs the nginx ingress controller, applies the kustomized `prod` overlay (filtering Traefik `IngressRoute`, forcing `imagePullPolicy: Never` and `storageClassName: standard`), asserts Redis + deployments become ready, and curls both `.de` and `.org` hostnames through the nginx ingress to verify dual-host routing.
 - **Job 3 — `traefik-integration`** (`needs: lint-manifests`, runs once on `Dockerfile_simple`): builds the simple image, brings up a second kind cluster, installs Traefik via Helm (`service.type=ClusterIP`), applies the full kustomized overlay without filtering the `IngressRoute` (still patching `imagePullPolicy: Never` and `storageClassName: standard` for kind compatibility), and curls both hostnames through Traefik. Catches IngressRoute-syntax regressions that the nginx-side test cannot.
@@ -288,5 +288,5 @@ Scheduled retention policy that keeps GHCR tidy.
 
 - **Trigger:** Sundays 03:00 UTC (cron), plus manual `workflow_dispatch` with a `dry-run` input (default `false`; set to `true` to preview deletions without acting).
 - **Policy (`ghcr.io/<repo>`):** delete `<sha>-simple` tags older than 30 days. Preserve `v*-simple`, `main-simple`, and `latest` indefinitely. Delete untagged manifests older than 7 days.
-- **Policy (`ghcr.io/<repo>/cache`):** delete untagged cache manifests older than 7 days. The active `simple-amd64` / `simple-arm64` cache tags are never deleted (buildx overwrites them in place).
+- **Policy (`ghcr.io/<repo>/cache`):** delete untagged cache manifests older than 7 days. The active `simple-amd64` cache tag is never deleted (buildx overwrites it in place).
 - **Failure isolation:** not in `needs:` of any other workflow. Cleanup failures never block merges. The job uses `snok/container-retention-policy@v3`.

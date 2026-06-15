@@ -31,7 +31,7 @@ In the OpenMS web application, workspaces are designed to keep your analysis org
      - You can customize the file size upload limit directly when running the application using the `--server.maxUploadSize` argument.
      - Example:
        ```bash
-       python run_app.py --server.maxUploadSize 500
+       streamlit run app.py --server.maxUploadSize 500
        ```
      - This sets the upload limit to 500MB for the current session.
      

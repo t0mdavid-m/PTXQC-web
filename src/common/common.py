@@ -438,9 +438,6 @@ def page_setup(page: str = "") -> dict[str, Any]:
             st.session_state["local_dir"] = ""
         else:
             st.session_state.location = "online"
-        # if we run the packaged windows version, we start within the Python directory -> need to change working directory to ..\streamlit-template
-        if "windows" in sys.argv:
-            os.chdir("../streamlit-template")
         # Define the directory where all workspaces will be stored
         if (
             st.session_state.settings["workspaces_dir"]

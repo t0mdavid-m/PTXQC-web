@@ -72,12 +72,12 @@ test_gui.py                     # Top-level GUI test module (run with tests/ by 
 clean-up-workspaces.py          # Cron-style cleanup of stale workspace directories
 entrypoint.sh, docker/          # Container entrypoint (auto-detects read-only root for apptainer/HPC)
 gdpr_consent/                   # GDPR consent Streamlit component (prebuilt JS bundle)
-docs/                           # User/developer guides, deployment docs, Windows-exe build notes
+docs/                           # User/developer guides, deployment docs
 k8s/                            # Kubernetes deployment: base manifests + Kustomize overlays/components
   base/                         #   streamlit + rq-worker deployments, redis, PVC, ingress, cleanup cronjob
   overlays/prod/                #   per-fork Kustomize overlay (slug, image, ingress hostnames, memory tier)
   components/memory-tier-{low,high}/  # node-selector + resource components selected by the overlay
-Dockerfile_simple / Dockerfile_simple.arm   # pyOpenMS + R/PTXQC image (amd64 / arm64)
+Dockerfile_simple               # pyOpenMS + R/PTXQC image (amd64)
 docker-compose.yml              # Local/standalone deployment config
 .streamlit/                     # Streamlit config + secrets template
 ```
@@ -222,7 +222,7 @@ pylint $(git ls-files '*.py') --errors-only \
 
 # --- Docker ---
 docker-compose up --build                     # standalone
-# Image (pyOpenMS + R/PTXQC): Dockerfile_simple (amd64) / Dockerfile_simple.arm (arm64)
+# Image (pyOpenMS + R/PTXQC): Dockerfile_simple (amd64)
 ```
 
 ### Test conventions
