@@ -178,7 +178,7 @@ Update `settings.json`, choose a Dockerfile, and update `README.md`. If you are 
 
 ### Step 2 — Let CI build the image
 
-Push your changes to `main` or create a tag. The workflow `.github/workflows/build-and-test.yml` builds both the full (`Dockerfile`) and lightweight (`Dockerfile_simple`) variants and pushes each to `ghcr.io/<your-org>/<your-repo>` with variant-suffixed tags: `<branch>-full` / `<branch>-simple`, `v<version>-full` / `v<version>-simple`, and `<sha>-full` / `<sha>-simple`. The unsuffixed `latest` tag tracks the full variant on `main`.
+Push your changes to `main` or create a tag. The workflow `.github/workflows/build-and-test.yml` builds the `Dockerfile_simple` image (for both amd64 and arm64) and pushes the multi-arch manifest to `ghcr.io/<your-org>/<your-repo>` with the tags `<branch>-simple`, `v<version>-simple`, and `<sha>-simple`. The unsuffixed `latest` tag tracks the `simple` image on `main`.
 
 ### Step 3 — Edit the production overlay
 
@@ -193,7 +193,7 @@ Open `k8s/overlays/prod/kustomization.yaml` and change the following fields:
 | `namePrefix` | `<your-app-name>-` (trailing dash) |
 | `commonLabels.app` | `<your-app-name>` |
 | `images[0].newName` | `ghcr.io/<your-org>/<your-repo>` |
-| `images[0].newTag` | `main-full` for the latest `main` build, or `v<version>-full` / `v<version>-simple` to pin a release. Use `-simple` variants if your app does not need the full TOPP toolchain. |
+| `images[0].newTag` | `main-simple` for the latest `main` build, or `v<version>-simple` to pin a release. |
 | Both `Host(...)` hostnames inside the IngressRoute `match` expression | your deployment hostnames on both TLDs: `<app>.webapps.openms.de` and `<app>.webapps.openms.org` |
 | IngressRoute service name reference (`template-app-streamlit`) | `<your-app-name>-streamlit` |
 | Redis URL in both Deployment patches (`redis://template-app-redis:6379/0`) | `redis://<your-app-name>-redis:6379/0` |
@@ -273,10 +273,10 @@ One unified workflow owns manifest lint, Docker build, push, and kind integratio
   - `kubeconform` runs against `k8s/base/*.yaml` with strict mode and Kubernetes 1.28 schemas (excluding `kustomization.yaml` and the Traefik CRD `traefik-ingressroute.yaml`).
   - `kubectl kustomize k8s/overlays/prod/` must succeed; the kustomized output is re-validated through `kubeconform` (with `IngressRoute` skipped).
   - Takes ~30s. Fails fast so manifest typos never trigger the hours-long full Docker build.
-- **Job 2 — `build`** (`needs: lint-manifests`, matrix over `[full, simple]`):
-  - Builds `Dockerfile` (full, includes TOPP tools) or `Dockerfile_simple` (pyOpenMS only) depending on the matrix leg.
-  - **Buildx registry cache** (`type=registry,…,mode=max`) stored at `ghcr.io/<repo>/cache:full` and `:simple`. A `cache-from` read is attempted on every event; `cache-to` write only on push/tag/workflow_dispatch (fork PRs can't write). Repeat builds with an unchanged Dockerfile finish in minutes.
-  - **Push** on push/tag/workflow_dispatch events (not on PRs). Tags: `<branch>-full` / `<branch>-simple`, `v<version>-full` / `v<version>-simple`, `<sha>-full` / `<sha>-simple`. `latest` is emitted only for the full variant on push to `main`.
+- **Job 2 — `build`** (`needs: lint-manifests`, builds the `simple` image on amd64 + arm64, stitched into a multi-arch manifest):
+  - Builds `Dockerfile_simple` (amd64) and `Dockerfile_simple.arm` (arm64) — pyOpenMS + R/PTXQC.
+  - **Buildx registry cache** (`type=registry,…,mode=max`) stored at `ghcr.io/<repo>/cache:simple-amd64` and `:simple-arm64`. A `cache-from` read is attempted on every event; `cache-to` write only on push/tag/workflow_dispatch (fork PRs can't write). Repeat builds with an unchanged Dockerfile finish in minutes.
+  - **Push** on push/tag/workflow_dispatch events (not on PRs). Tags: `<branch>-simple`, `v<version>-simple`, `<sha>-simple`. `latest` is emitted for the `simple` image on push to `main`.
   - **Kind integration** runs per variant: creates a kind cluster, loads the just-built image, installs the nginx ingress controller, applies the kustomized `prod` overlay (filtering Traefik `IngressRoute`, forcing `imagePullPolicy: Never` and `storageClassName: standard`), asserts Redis + deployments become ready, and curls both `.de` and `.org` hostnames through the nginx ingress to verify dual-host routing.
 - **Job 3 — `traefik-integration`** (`needs: lint-manifests`, runs once on `Dockerfile_simple`): builds the simple image, brings up a second kind cluster, installs Traefik via Helm (`service.type=ClusterIP`), applies the full kustomized overlay without filtering the `IngressRoute` (still patching `imagePullPolicy: Never` and `storageClassName: standard` for kind compatibility), and curls both hostnames through Traefik. Catches IngressRoute-syntax regressions that the nginx-side test cannot.
 - **Auth:** uses the workflow's `GITHUB_TOKEN` for GHCR login and as a build argument for in-image private-resource access. Fork PRs skip login (their `GITHUB_TOKEN` is read-only) but can still read the public cache.
@@ -287,6 +287,6 @@ One unified workflow owns manifest lint, Docker build, push, and kind integratio
 Scheduled retention policy that keeps GHCR tidy.
 
 - **Trigger:** Sundays 03:00 UTC (cron), plus manual `workflow_dispatch` with a `dry-run` input (default `false`; set to `true` to preview deletions without acting).
-- **Policy (`ghcr.io/<repo>`):** delete `<sha>-full` / `<sha>-simple` tags older than 30 days. Preserve `v*-full` / `v*-simple`, `main-full` / `main-simple`, and `latest` indefinitely. Delete untagged manifests older than 7 days.
-- **Policy (`ghcr.io/<repo>/cache`):** delete untagged cache manifests older than 7 days. The active `full` and `simple` cache tags are never deleted (buildx overwrites them in place).
+- **Policy (`ghcr.io/<repo>`):** delete `<sha>-simple` tags older than 30 days. Preserve `v*-simple`, `main-simple`, and `latest` indefinitely. Delete untagged manifests older than 7 days.
+- **Policy (`ghcr.io/<repo>/cache`):** delete untagged cache manifests older than 7 days. The active `simple-amd64` / `simple-arm64` cache tags are never deleted (buildx overwrites them in place).
 - **Failure isolation:** not in `needs:` of any other workflow. Cleanup failures never block merges. The job uses `snok/container-retention-policy@v3`.

@@ -47,10 +47,9 @@ To run the app locally:
 
 ## 🐳 Build with Docker
 
-This repository contains two Dockerfiles.
-
-1. `Dockerfile`: This Dockerfile builds all dependencies for the app including Python packages and the OpenMS TOPP tools. Recommended for more complex workflows where you want to use the OpenMS TOPP tools for instance with the **TOPP Workflow Framework**.
-2. `Dockerfile_simple`: This Dockerfile builds only the Python packages. Recommended for simple apps using pyOpenMS only.
+This repository ships a single image, built from `Dockerfile_simple`: pyOpenMS (via pip)
+plus R + PTXQC, which is all this app needs. It is built for both amd64 (`Dockerfile_simple`)
+and arm64 (`Dockerfile_simple.arm`).
 
 1. **Install Docker**
 
@@ -153,7 +152,7 @@ apptainer run \
 ```
 
 Available tags follow the same scheme as the Docker images: `latest`,
-`main-full`, `main-simple`, `v*-full`, `v*-simple`, and per-commit SHAs.
+`main-simple`, `v*-simple`, and per-commit SHAs.
 If a tag hasn't been prebuilt yet (e.g. a PR branch), fall back to on-the-fly
 conversion: `apptainer pull docker://ghcr.io/openms/streamlit-template:<tag>`.
 Requires apptainer 1.1+ or singularity-ce 3.10+ for the `oras://` transport.

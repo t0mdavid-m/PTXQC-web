@@ -68,7 +68,7 @@ src/
     QueueManager.py             # Redis/RQ queue for online deployments
     tasks.py, health.py         # RQ worker task definitions and health checks
 tests/                          # pytest unit + GUI tests (preset logic, queue cancel, workflow stop, ...)
-test.py, test_gui.py           # Top-level test modules also exercised by CI
+test_gui.py                     # Top-level GUI test module (run with tests/ by ci.yml)
 clean-up-workspaces.py          # Cron-style cleanup of stale workspace directories
 entrypoint.sh, docker/          # Container entrypoint (auto-detects read-only root for apptainer/HPC)
 gdpr_consent/                   # GDPR consent Streamlit component (prebuilt JS bundle)
@@ -77,8 +77,7 @@ k8s/                            # Kubernetes deployment: base manifests + Kustom
   base/                         #   streamlit + rq-worker deployments, redis, PVC, ingress, cleanup cronjob
   overlays/prod/                #   per-fork Kustomize overlay (slug, image, ingress hostnames, memory tier)
   components/memory-tier-{low,high}/  # node-selector + resource components selected by the overlay
-Dockerfile / Dockerfile.arm                 # Full build: OpenMS + TOPP tools + pyOpenMS (amd64 / arm64)
-Dockerfile_simple / Dockerfile_simple.arm   # Lightweight: pyOpenMS only (amd64 / arm64)
+Dockerfile_simple / Dockerfile_simple.arm   # pyOpenMS + R/PTXQC image (amd64 / arm64)
 docker-compose.yml              # Local/standalone deployment config
 .streamlit/                     # Streamlit config + secrets template
 ```
@@ -205,16 +204,16 @@ Components cross-link via a shared `link_id` column. Best for: large datasets (m
 # --- Run locally ---
 pip install -r requirements.txt
 streamlit run app.py
-# NOTE: local pip install gives pyOpenMS only. Pages/workflows that call TOPP tools
-# (executor.run_topp) need the OpenMS command-line tools installed separately, or run
-# via the full Dockerfile. See README "Run Locally" caveat.
+# NOTE: local pip install gives pyOpenMS only — it does NOT install R/PTXQC, so the
+# PTXQC report step degrades gracefully. Use the Docker image (Dockerfile_simple) for a
+# full run with R + PTXQC. See README "Run Locally" caveat.
 
 # --- Tests (pytest) ---
 # requirements.txt does NOT include the test deps; install them first:
 pip install pytest fakeredis
 python -m pytest test_gui.py tests/          # full suite as CI runs it (ci.yml)
 python -m pytest tests/                       # just the tests/ package
-python -m pytest tests/test_simple_workflow.py::test_number_inputs   # a single test
+python -m pytest tests/test_ptxqc_config.py::test_parse_contaminants_default   # a single test
 
 # --- Lint (matches the Pylint CI job) ---
 pip install pylint
@@ -223,7 +222,7 @@ pylint $(git ls-files '*.py') --errors-only \
 
 # --- Docker ---
 docker-compose up --build                     # standalone
-# Full image (TOPP tools): Dockerfile ; lightweight (pyOpenMS only): Dockerfile_simple
+# Image (pyOpenMS + R/PTXQC): Dockerfile_simple (amd64) / Dockerfile_simple.arm (arm64)
 ```
 
 ### Test conventions

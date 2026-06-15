@@ -51,8 +51,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: full
-            dockerfile: Dockerfile
           - variant: simple
             dockerfile: Dockerfile_simple
     steps:
@@ -81,7 +79,7 @@ jobs:
             type=ref,event=branch,suffix=-${{ matrix.variant }}-amd64
             type=ref,event=tag,suffix=-${{ matrix.variant }}-amd64
             type=sha,prefix=,suffix=-${{ matrix.variant }}-amd64
-            type=raw,value=latest-amd64,enable=${{ matrix.variant == 'full' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest-amd64,enable=${{ matrix.variant == 'simple' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Build and conditionally push
         uses: docker/build-push-action@v5
@@ -106,14 +104,14 @@ jobs:
       - name: Retag for kind (image name the kustomize overlay points at)
         run: |
           # The prod overlay sets `newName: ghcr.io/openms/streamlit-template`,
-          # `newTag: main-full`. The rendered manifests reference that exact
+          # `newTag: main-simple`. The rendered manifests reference that exact
           # ref, so we need it loaded into kind under that name. Tag invariant
           # across branches/variants so the test always works.
           FIRST_TAG=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
-          docker tag "$FIRST_TAG" ghcr.io/openms/streamlit-template:main-full
+          docker tag "$FIRST_TAG" ghcr.io/openms/streamlit-template:main-simple
 
       - name: Save image as tar
-        run: docker save ghcr.io/openms/streamlit-template:main-full -o /tmp/image.tar
+        run: docker save ghcr.io/openms/streamlit-template:main-simple -o /tmp/image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -126,9 +124,8 @@ jobs:
     # arm64 path. Runs on a native ARM64 runner (no QEMU). Produces per-arch
     # tags `<ref>-<variant>-arm64`; gets merged into the multi-arch manifest
     # under `<ref>-<variant>` by the `create-manifest` job below. The build
-    # uses a separate `Dockerfile.arm` / `Dockerfile_simple.arm` that swaps
-    # the miniforge installer to aarch64 and (for the full variant) guards
-    # the THIRDPARTY/Linux/aarch64 copy. The built image is also uploaded as
+    # uses a separate `Dockerfile_simple.arm` that swaps the miniforge
+    # installer to aarch64 (and compiles R + PTXQC from source). The built image is also uploaded as
     # an artifact so the apptainer / nginx / traefik integration jobs can
     # exercise the ARM image on a native ARM runner (matrix arch=arm64).
     needs: lint-manifests
@@ -140,8 +137,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: full
-            dockerfile: Dockerfile.arm
           - variant: simple
             dockerfile: Dockerfile_simple.arm
     steps:
@@ -181,7 +176,7 @@ jobs:
             type=ref,event=branch,suffix=-${{ matrix.variant }}-arm64
             type=ref,event=tag,suffix=-${{ matrix.variant }}-arm64
             type=sha,prefix=,suffix=-${{ matrix.variant }}-arm64
-            type=raw,value=latest-arm64,enable=${{ matrix.variant == 'full' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest-arm64,enable=${{ matrix.variant == 'simple' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Build and conditionally push
         uses: docker/build-push-action@v5
@@ -202,14 +197,14 @@ jobs:
       - name: Retag for kind (image name the kustomize overlay points at)
         run: |
           # The prod overlay sets `newName: ghcr.io/openms/streamlit-template`,
-          # `newTag: main-full`. The rendered manifests reference that exact
+          # `newTag: main-simple`. The rendered manifests reference that exact
           # ref, so we need it loaded into kind under that name. Tag invariant
           # across branches/variants so the test always works.
           FIRST_TAG=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
-          docker tag "$FIRST_TAG" ghcr.io/openms/streamlit-template:main-full
+          docker tag "$FIRST_TAG" ghcr.io/openms/streamlit-template:main-simple
 
       - name: Save image as tar
-        run: docker save ghcr.io/openms/streamlit-template:main-full -o /tmp/image.tar
+        run: docker save ghcr.io/openms/streamlit-template:main-simple -o /tmp/image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -233,7 +228,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [full, simple]
+        variant: [simple]
     steps:
       - name: Compute lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
@@ -252,12 +247,12 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # NB: no -amd64/-arm64 suffix here. These are the multi-arch
           # manifest names; they must match the pre-arm64 tag scheme so
-          # `:main-full`, `:v1.0.0-full`, `:latest` continue to resolve.
+          # `:main-simple`, `:v1.0.0-simple`, `:latest` continue to resolve.
           tags: |
             type=ref,event=branch,suffix=-${{ matrix.variant }}
             type=ref,event=tag,suffix=-${{ matrix.variant }}
             type=sha,prefix=,suffix=-${{ matrix.variant }}
-            type=raw,value=latest,enable=${{ matrix.variant == 'full' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ matrix.variant == 'simple' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Create and push multi-arch manifests
         # Iterate over manifest tags (newline-separated from metadata-action)
@@ -300,7 +295,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [full, simple]
+        variant: [simple]
     steps:
       - uses: actions/checkout@v4
 
@@ -392,27 +387,6 @@ jobs:
       - name: Verify health endpoint returns 200
         run: curl -fsS http://127.0.0.1:8501/_stcore/health
 
-      - name: Verify Redis is reachable inside container (full variant)
-        if: matrix.variant == 'full'
-        run: |
-          # In apptainer mode the entrypoint uses a unix socket (TCP 6379 on
-          # localhost is the host's, since net namespace is shared). The
-          # entrypoint writes the resolved URL to /tmp/openms-redis-url for
-          # out-of-band discovery, since `apptainer exec` spawns a fresh
-          # shell that doesn't inherit the daemon's exported env.
-          URL=$(apptainer exec instance://openms-test cat /tmp/openms-redis-url 2>/dev/null || true)
-          case "$URL" in
-            unix://*)
-              SOCK="${URL#unix://}"
-              echo "Redis URL is unix socket: $SOCK"
-              apptainer exec instance://openms-test redis-cli -s "$SOCK" ping | grep -i pong
-              ;;
-            *)
-              echo "Redis URL is TCP (or unset): ${URL:-default}"
-              apptainer exec instance://openms-test redis-cli ping | grep -i pong
-              ;;
-          esac
-
       - name: Verify bind mount is writable (workspaces) and readable (data)
         run: |
           # The whole point of pre-creating /workspaces-streamlit-template
@@ -473,7 +447,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [full, simple]
+        variant: [simple]
     steps:
       - name: Download validated SIF artifact
         uses: actions/download-artifact@v4
@@ -495,7 +469,7 @@ jobs:
             type=ref,event=branch,suffix=-${{ matrix.variant }}
             type=ref,event=tag,suffix=-${{ matrix.variant }}
             type=sha,prefix=,suffix=-${{ matrix.variant }}
-            type=raw,value=latest,enable=${{ matrix.variant == 'full' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ matrix.variant == 'simple' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Log in to GHCR for ORAS push
         env:
@@ -531,12 +505,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: full
-            arch: amd64
-            runner: ubuntu-latest
-          - variant: full
-            arch: arm64
-            runner: ubuntu-24.04-arm
           - variant: simple
             arch: amd64
             runner: ubuntu-latest
@@ -666,12 +634,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: full
-            arch: amd64
-            runner: ubuntu-latest
-          - variant: full
-            arch: arm64
-            runner: ubuntu-24.04-arm
           - variant: simple
             arch: amd64
             runner: ubuntu-latest

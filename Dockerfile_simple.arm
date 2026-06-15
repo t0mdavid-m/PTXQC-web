@@ -34,6 +34,36 @@ RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
 	&& apt-get update \
 	&& apt-get install gh -y
 
+#################################### install R + PTXQC
+# PTXQC is an R package; this app calls it as a subprocess (src/ptxqc_runner.R).
+# We add a recent R (CRAN apt repo) + the system libraries its dependencies need
+# + pandoc (for the rmarkdown HTML report), then install PTXQC and its deps.
+# NOTE: this needs outbound network access at build time (build in CI, not on a
+# network-blocked host).
+# DEBIAN_FRONTEND + a pre-seeded timezone keep the r-base/tzdata install
+# non-interactive (otherwise tzdata stalls the build on a "Geographic area:" prompt).
+RUN export DEBIAN_FRONTEND=noninteractive \
+	&& ln -snf /usr/share/zoneinfo/Etc/UTC /etc/localtime && echo "Etc/UTC" > /etc/timezone \
+	&& apt-get install -y --no-install-recommends software-properties-common dirmngr gnupg \
+	&& wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc > /dev/null \
+	&& add-apt-repository -y "deb https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/" \
+	&& apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		r-base r-base-dev pandoc \
+		libcairo2-dev libxml2-dev libssl-dev libcurl4-openssl-dev \
+		libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+		libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
+
+# Install PTXQC + all its dependencies from Posit Public Package Manager. On
+# amd64 the HTTPUserAgent header makes PPM serve Ubuntu-jammy binaries; on arm64
+# PPM has no jammy aarch64 binaries, so the dependency tree compiles from source
+# (slower, but the -dev libs above make it succeed). jsonlite + yaml are used by
+# src/ptxqc_runner.R.
+RUN Rscript -e 'options(repos = c(PPM = "https://packagemanager.posit.co/cran/__linux__/jammy/latest")); \
+	options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(), paste(getRversion(), R.version$platform, R.version$arch, R.version$os))); \
+	install.packages(c("PTXQC", "jsonlite", "yaml")); \
+	if (!requireNamespace("PTXQC", quietly = TRUE)) { quit(status = 1) }'
+
 # Download and install miniforge.
 ENV PATH="/root/miniforge3/bin:${PATH}"
 RUN wget -q \

@@ -8,7 +8,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        # Match the python version used in the committed Dockerfile (release/3.5.0)
+        # Match the python version used in the committed Dockerfile_simple (release/3.5.0)
         python-version: ["3.10"]
     steps:
     - uses: actions/checkout@v4
