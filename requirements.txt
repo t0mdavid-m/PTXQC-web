@@ -140,4 +140,4 @@ xlsxwriter
 
 # Redis Queue dependencies (for online mode)
 redis>=5.0.0
-rq>=1.16.0
+rq>=2.9.1
