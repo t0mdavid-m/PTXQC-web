@@ -1,7 +1,7 @@
 {
     "app-name": "Proteomics Quality Control",
     "github-user": "OpenMS",
-    "version": "1.1.1",
+    "version": "1.0",
     "repository-name": "streamlit-template",
     "analytics": {
         "google-analytics": {
