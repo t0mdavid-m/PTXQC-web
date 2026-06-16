@@ -58,9 +58,21 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 # Package Manager (the HTTPUserAgent header makes PPM serve Ubuntu-jammy binaries
 # instead of source — far faster than compiling the dependency tree). jsonlite +
 # yaml are used by src/ptxqc_runner.R. Falls back to source if a binary is absent.
-RUN Rscript -e 'options(repos = c(PPM = "https://packagemanager.posit.co/cran/__linux__/jammy/latest")); \
+# PTXQC version baked at build time. Default "latest" = current behavior. To bake an OUTDATED
+# PTXQC (so the runtime `update` in src/ptxqc_runner.R visibly upgrades it on the first report),
+# pass an older PPM dated snapshot, e.g. --build-arg PTXQC_REPO_SNAPSHOT=2024-06-01. The full
+# dependency tree is always installed from `latest` (binaries that match this image's R version);
+# only PTXQC itself is then downgraded from the dated *source* snapshot. PTXQC is pure R, so its
+# source install is quick and needs no version-matched binaries, and the newer deps satisfy its
+# (>=) requirements.
+ARG PTXQC_REPO_SNAPSHOT=latest
+ENV PTXQC_REPO_SNAPSHOT=${PTXQC_REPO_SNAPSHOT}
+RUN Rscript -e 'options(timeout = 600); \
+	options(repos = c(PPM = "https://packagemanager.posit.co/cran/__linux__/jammy/latest")); \
 	options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(), paste(getRversion(), R.version$platform, R.version$arch, R.version$os))); \
 	install.packages(c("PTXQC", "jsonlite", "yaml")); \
+	snap <- Sys.getenv("PTXQC_REPO_SNAPSHOT", "latest"); \
+	if (snap != "latest") install.packages("PTXQC", repos = paste0("https://packagemanager.posit.co/cran/", snap), dependencies = FALSE, type = "source"); \
 	if (!requireNamespace("PTXQC", quietly = TRUE)) { quit(status = 1) }'
 
 # Download and install miniforge.

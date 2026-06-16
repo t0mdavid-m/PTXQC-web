@@ -20,8 +20,23 @@
 #       <out>/ptxqc_result.json describing the produced files. Exits non-zero on
 #       failure (run_command then reports the failure to the workflow log).
 
+# PTXQC update staging library. Runtime PTXQC updates (the `update` subcommand) are
+# installed *here* — never over the image's built-in PTXQC — and this directory is
+# prepended to .libPaths() so a verified staged update shadows the built-in copy for
+# every subcommand. When the stage is empty (fresh container, or after a bad update is
+# reverted) every subcommand transparently falls back to the built-in site library.
+# /tmp is writable under docker, k8s and apptainer alike, so this needs no Dockerfile or
+# entrypoint change; set PTXQC_LIB to relocate it (e.g. a PVC path to persist updates).
+local({
+  stage <- Sys.getenv("PTXQC_LIB")
+  if (!nzchar(stage)) stage <- "/tmp/ptxqc-lib"
+  dir.create(stage, showWarnings = FALSE, recursive = TRUE)
+  if (dir.exists(stage)) .libPaths(c(stage, .libPaths()))
+})
+
+# PTXQC is attached lazily (per subcommand) rather than here: the `update`
+# subcommand must not require the package to load before it can (re)install it.
 suppressPackageStartupMessages({
-  library(PTXQC)
   library(yaml)
   library(jsonlite)
 })
@@ -34,6 +49,10 @@ get_opt <- function(flag, default = NULL) {
   if (is.na(i) || i == length(args)) return(default)
   args[[i + 1]]
 }
+
+# Attach PTXQC. Only the subcommands that actually build/run a report need it; the
+# `update` subcommand deliberately skips this so it can (re)install PTXQC cleanly.
+load_ptxqc <- function() suppressPackageStartupMessages(library(PTXQC))
 
 # Ordered QC metric list, mirroring PTXQC-web app/global.R.
 metric_table <- function() {
@@ -98,6 +117,7 @@ make_yaml_obj <- function(cfg) {
 }
 
 if (cmd == "default-config") {
+  load_ptxqc()
   out <- get_opt("--out")
   meta_out <- paste0(out, ".json")
   mt <- metric_table()
@@ -122,10 +142,18 @@ if (cmd == "default-config") {
   ), dataframe = "rows", auto_unbox = TRUE), con = meta_out)
 
 } else if (cmd == "run") {
+  load_ptxqc()
   config <- get_opt("--config")
   input  <- get_opt("--in")
   type   <- get_opt("--type", "maxquant")
   out    <- get_opt("--out")
+  # Resolve to absolute paths up front: createReport() renders an Rmd via rmarkdown, which
+  # changes the working directory mid-render, so a relative txt_folder/out gets re-resolved
+  # against the wrong cwd and fails ("directory does not exist"). Surfaced once a runtime
+  # update moved PTXQC to 1.1.5; absolute paths are cwd-independent.
+  if (!is.null(config)) config <- normalizePath(config, mustWork = FALSE)
+  if (!is.null(input))  input  <- normalizePath(input, mustWork = FALSE)
+  if (!is.null(out))    out    <- normalizePath(out, mustWork = FALSE)
 
   cfg <- fromJSON(config, simplifyVector = TRUE, simplifyDataFrame = FALSE)
   version <- as.character(packageVersion("PTXQC"))
@@ -167,6 +195,7 @@ if (cmd == "default-config") {
 } else if (cmd == "build-config") {
   # Write the PTXQC config YAML that a run would use (for preview/download and the
   # parity audit) without running a report.
+  load_ptxqc()
   config <- get_opt("--config")
   out <- get_opt("--out")
   cfg <- fromJSON(config, simplifyVector = TRUE, simplifyDataFrame = FALSE)
@@ -178,7 +207,72 @@ if (cmd == "default-config") {
     }
   }, type = "output"))
 
+} else if (cmd == "update") {
+  # Update PTXQC AND its required dependencies to the latest release before a report runs,
+  # into the staging library ONLY — never over the image's built-in copy. Uses the same
+  # Posit PPM binary source as the Docker build, so deps install as precompiled binaries.
+  # Best-effort by contract: the caller (Workflow.execution) never aborts the run on a
+  # non-zero exit, and a staged update that fails to load is reverted to the built-in copy.
+  repo <- "https://packagemanager.posit.co/cran/__linux__/jammy/latest"
+  options(repos = c(PPM = repo),
+          HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+            paste(getRversion(), R.version$platform, R.version$arch, R.version$os)),
+          timeout = max(getOption("timeout"), 300))  # a hung mirror must not stall the report
+  stage <- Sys.getenv("PTXQC_LIB")
+  if (!nzchar(stage)) stage <- "/tmp/ptxqc-lib"
+  dir.create(stage, showWarnings = FALSE, recursive = TRUE)
+  # Refuse to install into / wipe a built-in library: the stage must be a dedicated,
+  # writable directory so the built-in PTXQC is always preserved as the fallback.
+  protected <- normalizePath(c(.Library, .Library.site), winslash = "/", mustWork = FALSE)
+  stage_ok <- dir.exists(stage) &&
+              !(normalizePath(stage, winslash = "/", mustWork = FALSE) %in% protected) &&
+              file.access(stage, mode = 2) == 0
+  before <- tryCatch(as.character(packageVersion("PTXQC")), error = function(e) "none")
+  if (!stage_ok) {
+    message(sprintf("PTXQC update: no usable staging library (PTXQC_LIB=%s); keeping built-in version %s",
+                    stage, before))
+  } else {
+    .libPaths(c(stage, .libPaths()))  # ensure stage on path before checking/installing
+    # Skip the (otherwise per-run) reinstall when already on the latest release. The PPM
+    # PACKAGES index fetch is far cheaper than downloading + installing the dependency tree.
+    latest <- tryCatch(available.packages()["PTXQC", "Version"], error = function(e) NA_character_)
+    if (is.na(latest)) {
+      # PPM unreachable: a full install would fail too, so don't attempt one — keep current.
+      message(sprintf("PTXQC update: could not reach PPM to check for updates; keeping current version %s", before))
+    } else if (before != "none" && package_version(before) >= package_version(latest)) {
+      message(sprintf("PTXQC update: already current (%s)", before))
+    } else {
+      # A newer release exists (or PTXQC is missing): stage it. dependencies = NA also
+      # (re)installs PTXQC's required deps (Depends/Imports/LinkingTo) so a release needing
+      # newer deps actually loads; deps already satisfied by the built-in library are untouched.
+      withCallingHandlers(
+        tryCatch(install.packages("PTXQC", lib = stage, dependencies = NA),
+                 error = function(e) message("PTXQC install error: ", conditionMessage(e))),
+        warning = function(w) {
+          message("PTXQC install warning: ", conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
+      )
+      # Verify the staged PTXQC actually loads (deps resolved across the stage + built-in libs).
+      ok <- tryCatch({
+        suppressPackageStartupMessages(loadNamespace("PTXQC"))
+        TRUE
+      }, error = function(e) {
+        message("staged PTXQC failed to load: ", conditionMessage(e))
+        FALSE
+      })
+      if (!ok) {
+        unlink(list.files(stage, full.names = TRUE), recursive = TRUE, force = TRUE)
+        message("PTXQC update: staged update unusable, reverted to built-in version")
+      } else {
+        message(sprintf("PTXQC update: %s -> %s", before, as.character(packageVersion("PTXQC"))))
+      }
+    }
+  }
+  # Hard-fail only if PTXQC is now entirely unavailable (neither stage nor built-in loads).
+  if (!requireNamespace("PTXQC", quietly = TRUE)) quit(status = 1)
+
 } else {
-  message("Usage: ptxqc_runner.R [default-config|run|build-config] ...")
+  message("Usage: ptxqc_runner.R [default-config|run|build-config|update] ...")
   quit(status = 2)
 }

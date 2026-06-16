@@ -191,6 +191,15 @@ class Workflow(WorkflowManager):
             rtype = "maxquant"
 
         size_mb = sum(os.path.getsize(f) for f in in_files) / 1e6
+
+        # Best-effort: update PTXQC to the latest release before generating the report.
+        # Runs as its own Rscript process so the `run` below freshly loads the updated
+        # version. run_command returns False (never raises) on failure, so a missing
+        # network / read-only library just falls through to the installed version.
+        self.logger.log("Updating PTXQC to the latest release (Posit PPM)...")
+        if not self.executor.run_command(["Rscript", cfg.RUNNER, "update"]):
+            self.logger.log("WARNING: PTXQC update failed; using the currently installed version.")
+
         self.logger.log(f"Generating PTXQC report for {len(in_files)} input file(s) ({selected})...")
         ok = self.executor.run_command(
             ["Rscript", cfg.RUNNER, "run",

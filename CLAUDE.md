@@ -123,9 +123,11 @@ Template parameters are tracked via widget keys. `default-parameters.json` holds
 
 ### R wrapper contract (`src/ptxqc_runner.R`)
 
-Two subcommands, both invoked as `Rscript src/ptxqc_runner.R <cmd> ...` from Python:
+Subcommands, all invoked as `Rscript src/ptxqc_runner.R <cmd> ...` from Python. PTXQC is attached **lazily per-subcommand** (`load_ptxqc()`), not at the top of the script, so `update` can (re)install it cleanly:
 - `default-config --out <yaml>` → writes the version-correct default YAML and a `<yaml>.json` sidecar (`{version, metrics:[{id,name}]}`). `ptxqc_config.get_ptxqc_metadata()` caches this (via `@st.cache_data`) to populate the UI without hardcoding anything PTXQC-version-specific.
 - `run --config <json> --in <path> --type maxquant|mztab --out <dir>` → builds the YAML from the payload, runs `createReport`, and writes outputs + a `ptxqc_result.json` (`{version, html, pdf, yaml, log, error}`).
+- `update` → updates **PTXQC and its required dependencies** (`dependencies = NA`) to the latest release from Posit PPM (precompiled jammy binaries, same source as the Docker build), into a **staging library** (`PTXQC_LIB`, default `/tmp/ptxqc-lib`, prepended to `.libPaths()`) — **never overwriting the image's built-in PTXQC**. It first checks PPM and **skips the install when already current** (a cheap version check, not a per-run reinstall); when a newer release exists it installs and then **verifies the staged PTXQC loads** and, if it doesn't, **wipes the stage to auto-revert** to the built-in version, so a bad release can't break reports. `Workflow.execution()` calls this **best-effort before every `run`** (its own Rscript process, so `run` loads the staged-then-verified version, else the built-in); outcomes are logged and the report always proceeds on a loadable version.
+- `build-config --config <json> --out <yaml>` → writes the PTXQC config YAML a run would use (preview/download and the R-side parity audit) without running a report.
 
 `ptxqc_config.py` is the only Python that knows the payload shape; it forwards just the keys in `PARAM_KEYS` and reproduces PTXQC-web's coupling (`param_EV_intThresh = param_EV_protThresh`).
 
