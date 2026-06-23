@@ -35,6 +35,57 @@ long-term maintainability.
 
 A hosted instance is available at **[ptxqc.webapps.openms.org](https://ptxqc.webapps.openms.org)**.
 
+## 💻 Run locally (without Docker)
+
+You can run the app straight from a checkout. Two layers are involved: the **Python/Streamlit**
+front end and the **R/PTXQC** engine that actually builds the reports.
+
+### 1. Python front end (minimum to launch the app)
+
+```bash
+git clone https://github.com/BioinformaticsSolutionCenter/PTXQC-web.git
+cd PTXQC-web
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+streamlit run app.py                                # opens http://localhost:8501
+```
+
+This is enough to launch every page. The committed `settings.json` runs in **local mode**
+(single user, no captcha, no Redis), so nothing else is required to start.
+
+> **Note:** `pip install` only gives you **pyOpenMS** — it does **not** install R or PTXQC. Without
+> them the app still loads and degrades gracefully: the *Configure* page warns, the live metric
+> list is empty, and actually running a report fails. To generate reports, install the R engine
+> below.
+
+### 2. R engine (needed to generate reports)
+
+Install **R** (4.x) and **pandoc** (used for the HTML report), then install the PTXQC package and
+the two helper packages the runner uses:
+
+```bash
+Rscript -e 'install.packages(c("PTXQC", "jsonlite", "yaml"), repos = "https://cloud.r-project.org")'
+```
+
+- **Windows / macOS** get precompiled CRAN binaries, so this is quick and needs no extra system
+  libraries. Install R from <https://cran.r-project.org> and pandoc from
+  <https://pandoc.org/installing.html> (or `winget install RProject.R pandoc` /
+  `brew install r pandoc`).
+- **Linux** compiles PTXQC's dependencies from source unless you use precompiled binaries. The
+  fast path (same one the Docker build uses) is Posit Public Package Manager plus the system
+  `-dev` libraries — see the `install.packages` step and the `apt-get install` list in
+  [`Dockerfile_simple`](Dockerfile_simple) for the exact repository URL and package names.
+
+Make sure `Rscript` is on your `PATH` (the app shells out to `Rscript src/ptxqc_runner.R …`).
+Verify the engine is visible to the app with:
+
+```bash
+Rscript src/ptxqc_runner.R default-config --out /tmp/ptxqc-default.yaml
+```
+
+If that writes a YAML file, the *Configure* page will show the live metric list and report
+generation will work.
+
 ## 🐳 Run with Docker
 
 The app ships as a single prebuilt image (linux/amd64) on the GitHub Container Registry, so you
