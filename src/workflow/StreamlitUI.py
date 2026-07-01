@@ -1398,9 +1398,6 @@ class StreamlitUI:
         get_status_function=None,
         stop_workflow_function=None
     ) -> None:
-        with st.expander("**Summary**"):
-            st.markdown(self.export_parameters_markdown())
-
         c1, c2 = st.columns(2)
         # Select log level, this can be changed at run time or later without re-running the workflow
         log_level = c1.selectbox(
@@ -1456,28 +1453,37 @@ class StreamlitUI:
 
         # Display logs and status
         if is_running:
-            # Real-time display during execution
-            spinner_text = "**Workflow running...**"
+            # Real-time display during execution. Use a fragment that re-runs on a
+            # timer so ONLY the status+log area refreshes — re-running the whole
+            # page every second made the "Workflow running..." banner and the log
+            # flicker (disappear/reappear) on each cycle.
+            running_msg = "**Workflow running...**"
             if job_status == "queued":
                 pos = status.get("queue_position", "?")
-                spinner_text = f"**Waiting in queue (position {pos})...**"
+                running_msg = f"**Waiting in queue (position {pos})...**"
 
-            with st.spinner(spinner_text):
-                if log_exists:
-                    with open(log_path, "r", encoding="utf-8") as f:
-                        lines = f.readlines()
-                    if log_lines_count == "all":
-                        display_lines = lines
-                    else:
-                        display_lines = lines[-st.session_state.log_lines_count:]
-                    st.code(
-                        "".join(display_lines),
-                        language="neon",
-                        line_numbers=False,
+            @st.fragment(run_every=2)
+            def _live_status(msg=running_msg):
+                # Re-check status inside the fragment so it can stop when the run
+                # finishes (then trigger one full rerun to show the final view).
+                cur = get_status_function() if get_status_function else {}
+                still_running = cur.get("running", False)
+                pid_alive = self.executor.pid_dir.exists() and list(self.executor.pid_dir.iterdir())
+                if not still_running and pid_alive:
+                    still_running = True
+                if not still_running:
+                    st.rerun()  # full rerun → render the completed/static view below
+                    return
+                st.info(msg)  # stable (no spinner re-animation/flicker)
+                if log_path.exists():
+                    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+                    display_lines = (
+                        lines if log_lines_count == "all"
+                        else lines[-st.session_state.log_lines_count:]
                     )
-                # Faster polling for real-time updates
-                time.sleep(1)
-                st.rerun()
+                    st.code("".join(display_lines), language="neon", line_numbers=False)
+
+            _live_status()
 
         elif log_exists:
             # Static display after completion

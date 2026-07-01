@@ -119,6 +119,7 @@ COPY content/ /app/content
 COPY docs/ /app/docs
 COPY example-data/ /app/example-data
 COPY gdpr_consent/ /app/gdpr_consent
+COPY mq_dir_upload/ /app/mq_dir_upload
 COPY hooks/ /app/hooks
 COPY src/ /app/src
 COPY utils/ /app/utils

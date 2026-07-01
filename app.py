@@ -11,10 +11,10 @@ if "settings" not in st.session_state:
 if __name__ == '__main__':
     pages = {
         str(st.session_state.settings["app-name"]): [
-            st.Page(Path("content", "ptxqc_upload.py"), title="Upload Data", icon="📁"),
-            st.Page(Path("content", "ptxqc_configure.py"), title="Configure", icon="⚙️"),
-            st.Page(Path("content", "ptxqc_run.py"), title="Create Report", icon="🚀"),
-            st.Page(Path("content", "ptxqc_results.py"), title="Report", icon="📊"),
+            st.Page(Path("content", "ptxqc_upload.py"), title="1. Upload Data", icon="📁"),
+            st.Page(Path("content", "ptxqc_configure.py"), title="2. Configure", icon="⚙️"),
+            st.Page(Path("content", "ptxqc_run.py"), title="3. Create Report", icon="🚀"),
+            st.Page(Path("content", "ptxqc_results.py"), title="4. Report", icon="📊"),
         ],
         "Info": [
             st.Page(Path("content", "help.py"), title="Help", icon="❓"),

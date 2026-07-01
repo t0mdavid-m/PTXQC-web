@@ -15,6 +15,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from src.workflow.WorkflowManager import WorkflowManager
+from src.common.mq_dir_upload import filtered_directory_upload
 from src import ptxqc_config as cfg
 
 # Map the data-type selector to (input-files key, accepted extensions, upload mode).
@@ -79,6 +80,33 @@ class Workflow(WorkflowManager):
                     if line.strip() and os.path.exists(line.strip())]
         return out
 
+    def show_file_upload_section(self) -> None:
+        """Render the upload section *without* the template's generic
+        '⬇️ Download files' button (not useful for this app — finding feedback)."""
+        self.upload()
+
+    def has_inputs(self) -> bool:
+        """True if input files are staged for the currently selected data type.
+        Used by the upload page to reveal the 'next step' link once data is in."""
+        # Read the LIVE selector value (same source as upload()), not the persisted
+        # self.params, so the check stays consistent right after switching data type.
+        selected = st.session_state.get(self._pk("input-type"), "MaxQuant directory")
+        key, _ftypes, _mode = INPUT_TYPES[selected]
+        return bool(self._gather_files(Path(self.workflow_dir, "input-files", key)))
+
+    def has_report(self) -> bool:
+        """True once a *successful* report has been generated. The R wrapper writes
+        ptxqc_result.json even on failure (with an `error` field), so existence alone
+        isn't enough — require no error and an actual HTML/PDF artifact."""
+        f = Path(self.workflow_dir, "results", "qc-report", "ptxqc_result.json")
+        if not f.exists():
+            return False
+        try:
+            res = json.loads(f.read_text())
+        except (ValueError, OSError):
+            return False
+        return not res.get("error") and bool(res.get("html") or res.get("pdf"))
+
     # ----- sections ------------------------------------------------------
     def upload(self) -> None:
         self.ui.input_widget(
@@ -97,12 +125,18 @@ class Workflow(WorkflowManager):
 
         if mode == "directory":
             st.info(
-                "Select your MaxQuant **txt** folder — your browser uploads its files "
-                "and only the PTXQC-relevant ones (Evidence, msms, summary, parameters, "
-                "proteinGroups, msmsScans, mqpar.xml) are used."
+                "Select your MaxQuant **txt** folder. Your browser reads the whole folder "
+                "but uploads **only** the PTXQC-relevant files (evidence, msms, msmsScans, "
+                "parameters, proteinGroups, summary, mqpar.xml) — large files such as "
+                "allPeptides.txt are never read and stay on your machine."
             )
-            self.ui.upload_widget(key=key, name="MaxQuant txt folder", file_types=ftypes, directory=True)
+            filtered_directory_upload(Path(self.workflow_dir, "input-files", key))
         elif mode == "multi":
+            st.info(
+                "Upload only the PTXQC-relevant MaxQuant files "
+                "(**evidence**, **msms**, **msmsScans**, **parameters**, **proteinGroups**, "
+                "**summary**, **mqpar.xml**). Any other files are ignored."
+            )
             self.ui.upload_widget(key=key, name="MaxQuant txt files", file_types=ftypes)
         else:
             self.ui.upload_widget(key=key, name="mzTab file", file_types=ftypes)
@@ -124,6 +158,17 @@ class Workflow(WorkflowManager):
 
         if use_yaml:
             self.ui.upload_widget(key="yaml-config", name="PTXQC YAML config", file_types=["yaml", "yml"])
+            return
+
+        # The "Show advanced parameters" toggle (rendered by parameter_section)
+        # gates the threshold grid. Off = PTXQC defaults are used as-is.
+        if not st.session_state.get("advanced", False):
+            st.caption(
+                "Using PTXQC's default thresholds and all metrics. Turn on "
+                "**Show advanced parameters** above to customise the ID-rate bands, "
+                "protein/peptide count targets, mass-error tolerances, match-between-runs, "
+                "the contaminants list, and which metrics to compute."
+            )
             return
 
         st.markdown("##### Advanced settings")
@@ -166,6 +211,20 @@ class Workflow(WorkflowManager):
             self.logger.log("ERROR: No input files provided.")
             raise RuntimeError("No input files provided.")
 
+        # Generating a report needs R/PTXQC. rscript_path() also looks in the
+        # standard Windows R install dir (the installer doesn't add R to PATH).
+        # When still not found, fail with a clear message and no traceback —
+        # upload and configuration work fine without R.
+        rscript = cfg.rscript_path()
+        if shutil.which(rscript) is None and not os.path.exists(rscript):
+            self.logger.log(
+                "ERROR: 'Rscript' was not found. Generating a PTXQC report requires R "
+                "and the PTXQC package. Install R (see the README's 'Run locally "
+                "(without Docker)' section), put it on PATH or set the PTXQC_RSCRIPT "
+                "env var, or use the Docker image. Uploading and tuning work without R."
+            )
+            return False
+
         # Stage inputs into the results dir; PTXQC writes its outputs alongside them.
         rundir = Path(self.workflow_dir, "results", "qc-report")
         rundir.mkdir(parents=True, exist_ok=True)
@@ -197,12 +256,12 @@ class Workflow(WorkflowManager):
         # version. run_command returns False (never raises) on failure, so a missing
         # network / read-only library just falls through to the installed version.
         self.logger.log("Updating PTXQC to the latest release (Posit PPM)...")
-        if not self.executor.run_command(["Rscript", cfg.RUNNER, "update"]):
+        if not self.executor.run_command([cfg.rscript_path(), cfg.RUNNER, "update"]):
             self.logger.log("WARNING: PTXQC update failed; using the currently installed version.")
 
         self.logger.log(f"Generating PTXQC report for {len(in_files)} input file(s) ({selected})...")
         ok = self.executor.run_command(
-            ["Rscript", cfg.RUNNER, "run",
+            [cfg.rscript_path(), cfg.RUNNER, "run",
              "--config", str(cfg_path), "--in", in_arg, "--type", rtype, "--out", str(rundir)]
         )
 
@@ -245,12 +304,43 @@ class Workflow(WorkflowManager):
                 "Please contact the PTXQC authors: https://github.com/cbielow/PTXQC"
             )
 
+        # Downloads + actions go at the TOP so they're visible without scrolling
+        # past the tall embedded report.
+        st.markdown("##### Downloads")
+        d_cols = st.columns(4)
+        for col, (label, path) in zip(d_cols, [
+            ("PDF report", res.get("pdf")),
+            ("HTML report", res.get("html")),
+            ("YAML config", res.get("yaml")),
+            ("Log file", res.get("log")),
+        ]):
+            if path and Path(path).exists():
+                with open(path, "rb") as f:
+                    col.download_button(label, f, file_name=Path(path).name, use_container_width=True)
+
+        # Open a fresh session (new browser tab) on the UPLOAD page. This page
+        # (Report) is served at "<base>/ptxqc_results"; a relative href of "."
+        # resolves to that path's parent directory — the app root, which is the
+        # default (Upload) page — and drops the ?workspace query, so a hosted
+        # deployment hands the new tab a brand-new workspace. (href="?" would keep
+        # the /ptxqc_results path and just reopen the Report page.) Works even
+        # under a server baseUrlPath. The old report stays open in this tab.
+        st.markdown(
+            '<a href="." target="_blank" rel="noopener" '
+            'style="display:inline-block;margin-top:0.5rem;padding:0.5rem 1rem;background:#29379b;'
+            'color:#fff;border-radius:0.5rem;text-decoration:none;font-weight:600;">'
+            '➕ Create new report (opens a fresh upload page in a new tab)</a>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("---")
+
         html_path = res.get("html")
         if html_path and Path(html_path).exists():
             report_html = Path(html_path).read_text(encoding="utf-8", errors="replace")
             st.caption(
                 "Interactive QC report below. Use **⤢ Open in a new tab** (top-right of the "
-                "report) or the **HTML report** download to view it full-screen."
+                "report) or the **HTML report** download above to view it full-screen."
             )
             # The PTXQC report is a self-contained HTML document, so embed it directly.
             # (Streamlit static serving returns text/plain + nosniff for .html, which makes
@@ -274,19 +364,14 @@ class Workflow(WorkflowManager):
 </script>
 """
             components.html(report_html + popout, height=900, scrolling=True)
-
-        st.markdown("##### Downloads")
-        d_cols = st.columns(4)
-        for col, (label, path) in zip(d_cols, [
-            ("PDF report", res.get("pdf")),
-            ("HTML report", res.get("html")),
-            ("YAML config", res.get("yaml")),
-            ("Log file", res.get("log")),
-        ]):
-            if path and Path(path).exists():
-                with open(path, "rb") as f:
-                    col.download_button(label, f, file_name=Path(path).name, use_container_width=True)
-
-        if st.button("Create new report"):
-            shutil.rmtree(rundir, ignore_errors=True)
-            st.rerun()
+        else:
+            # PTXQC produced no HTML (only the PDF). The interactive HTML report is
+            # rendered via pandoc; the Docker image ships it, but a local R install
+            # often lacks it. Explain rather than showing a blank area.
+            st.info(
+                "ℹ️ The interactive **HTML** report isn't available for this run — "
+                "PTXQC produced only the PDF. The HTML report is rendered with "
+                "**pandoc**, which the Docker image includes but a local install may "
+                "lack. Download the **PDF report** above, or install pandoc "
+                "(`winget install JohnMacFarlane.Pandoc`) and re-run for the interactive HTML."
+            )
