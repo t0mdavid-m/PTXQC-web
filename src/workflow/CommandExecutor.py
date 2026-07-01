@@ -121,15 +121,27 @@ class CommandExecutor:
         self.logger.log(f"Running command:\n"+' '.join(command)+"\nWaiting for command to finish...", 1)   
         start_time = time.time()
         
-        # Execute the command with real-time output capture
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
-            universal_newlines=True
-        )
+        # Execute the command with real-time output capture. A missing
+        # executable (e.g. Rscript not installed / not on PATH) raises
+        # FileNotFoundError here; catch it so this stays a clean False return
+        # (its documented contract) instead of crashing the workflow process.
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+        except (FileNotFoundError, OSError) as e:
+            self.logger.log(
+                f"ERROR: Could not run '{command[0]}': {e}. "
+                f"Is it installed and on PATH? "
+                f"(PTXQC reports require R/Rscript — use the Docker image or install R locally.)",
+                0,
+            )
+            return False
         child_pid = process.pid
         
         # Record the PID to keep track of running processes associated with this workspace/workflow

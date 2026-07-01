@@ -83,6 +83,9 @@ clean-up-workspaces.py          # Cron-style cleanup of stale workspace director
 docker/entrypoint.sh            # Canonical container entrypoint (copied to /app/entrypoint.sh in the image);
 entrypoint.sh                   #   auto-detects a read-only root (apptainer/HPC) and moves runtime state to /tmp
 gdpr_consent/                   # GDPR consent Streamlit component (prebuilt JS bundle)
+mq_dir_upload/                   # JS folder-picker shim: filters a picked MaxQuant folder to the PTXQC-relevant
+                                #   files and injects ONLY those into a native st.file_uploader (HTTP transport,
+                                #   scales to GBs; never uses setComponentValue). Python wrapper: src/common/mq_dir_upload.py
 docs/                           # User/developer + deployment docs
 k8s/                            # Kustomize: base/ + components/memory-tier-{low,high}/ + overlays/prod/
 Dockerfile_simple               # The single shipped image (linux/amd64): pyOpenMS (pip) + R + PTXQC + pandoc
@@ -110,7 +113,7 @@ Pages are registered in `app.py` under named sidebar sections (the dict key is t
 
 The whole app is one `WorkflowManager` subclass implementing the four template methods. This is the example to copy when changing app behavior:
 
-- `upload()` — a reactive **Data type** selector (`MaxQuant directory` / `MaxQuant files` / `mzTab file`) drives which `self.ui.upload_widget(...)` is shown (folder upload vs. multi-file vs. single).
+- `upload()` — a reactive **Data type** selector (`MaxQuant directory` / `MaxQuant files` / `mzTab file`) drives which uploader is shown. `MaxQuant files` / `mzTab file` use `self.ui.upload_widget(...)` (multi-file / single). `MaxQuant directory` uses `src/common/mq_dir_upload.filtered_directory_upload`: the `mq_dir_upload` JS **shim** lets the user pick a whole folder but injects **only** the PTXQC-relevant files into a native `st.file_uploader` (so multi-GB `allPeptides.txt` etc. never leave the user's machine — the stock directory uploader filters by extension only, which wouldn't). The native uploader transfers over HTTP (scales; a base64-over-websocket component value does **not** — it silently drops at a few hundred MB, the size real evidence/msms files reach). The wrapper mirrors the uploaded files into the same `input-files/txt-files/` dir the widget would, so `execution()`/`_gather_files` are unchanged. Note: `Workflow.show_file_upload_section()` is overridden to drop the template's generic "⬇️ Download files" button.
 - `configure()` (`@st.fragment`) — either an "upload a YAML config" path, or the manual advanced-settings grid built from the module-level `NUMBER_WIDGETS` list + a contaminants text field + a metrics multiselect populated from the installed PTXQC version. Degrades gracefully (a warning, defaults only) when R/PTXQC is unavailable.
 - `execution()` — gathers inputs, writes a JSON run-config (via `ptxqc_config.build_run_config`), then runs **R**: `self.executor.run_command(["Rscript", cfg.RUNNER, "run", "--config", ..., "--in", ..., "--type", "maxquant"|"mztab", "--out", ...])`. Appends a row to the shared usage log afterward.
 - `results()` (`@st.fragment`) — reads the wrapper's `ptxqc_result.json`, embeds the report HTML via `st.components.v1.html(...)` (with an injected "open in new tab" button), and offers PDF/HTML/YAML/log downloads.

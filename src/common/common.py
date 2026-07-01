@@ -768,7 +768,9 @@ def render_sidebar(page: str = "") -> None:
             if st.session_state.settings.get("online_deployment", False):
                 monitor_queue()
 
-        # Display OpenMS WebApp Template Version from settings.json
+        # Display the app name + the installed PTXQC version (read dynamically
+        # via the R wrapper; 'unknown' when R/PTXQC is unavailable, e.g. local
+        # dev). NOT the static settings.json "version" (a placeholder).
         with st.container():
             st.markdown(
                 """
@@ -786,10 +788,12 @@ def render_sidebar(page: str = "") -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            version_info = st.session_state.settings["version"]
+            from src.ptxqc_config import get_ptxqc_metadata
+            meta = get_ptxqc_metadata()
+            ver = meta["version"] if meta.get("available") else "unknown"
             app_name = st.session_state.settings["app-name"]
             st.markdown(
-                f'<div class="version-box">{app_name}<br>Version: {version_info}</div>',
+                f'<div class="version-box">{app_name} (version {ver})</div>',
                 unsafe_allow_html=True,
             )
 

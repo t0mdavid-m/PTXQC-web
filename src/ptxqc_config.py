@@ -15,7 +15,9 @@ and usage-log helpers are plain functions so they run inside the RQ worker too.
 """
 
 import os
+import glob
 import json
+import shutil
 import subprocess
 import tempfile
 from datetime import date
@@ -26,6 +28,37 @@ import streamlit as st
 
 # Path to the R wrapper, relative to the app root (cwd of streamlit / the worker).
 RUNNER = str(Path("src", "ptxqc_runner.R"))
+
+
+def rscript_path() -> str:
+    """Resolve the ``Rscript`` executable to invoke.
+
+    Order: ``PTXQC_RSCRIPT``/``RSCRIPT`` env override → ``Rscript`` on PATH →
+    common Windows install locations (the R installer does NOT add R to PATH, so
+    a plain local install is otherwise invisible to a subprocess) → bare
+    ``"Rscript"`` as a last resort (which then errors clearly if truly absent).
+    In Docker/Linux R is on PATH, so this returns the same thing as before.
+    """
+    for env in ("PTXQC_RSCRIPT", "RSCRIPT"):
+        v = os.environ.get(env)
+        if v and Path(v).exists():
+            return v
+    found = shutil.which("Rscript")
+    if found:
+        return found
+    candidates: list[str] = []
+    for base in (
+        r"C:\Program Files\R",
+        r"C:\Program Files\Microsoft\R Open",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\R"),
+    ):
+        candidates += glob.glob(os.path.join(base, "R-*", "bin", "x64", "Rscript.exe"))
+        candidates += glob.glob(os.path.join(base, "R-*", "bin", "Rscript.exe"))
+    # Newest version directory first (lexicographic on R-x.y.z is good enough).
+    for c in sorted(candidates, reverse=True):
+        if os.path.exists(c):
+            return c
+    return "Rscript"
 
 # The 13 numeric/selection parameters exposed by the original PTXQC-web advanced
 # settings. These names match the `param$...` keys consumed by PTXQC's createYaml
@@ -84,7 +117,7 @@ def get_ptxqc_metadata() -> dict:
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tf:
             yaml_path = tf.name
         proc = subprocess.run(
-            ["Rscript", RUNNER, "default-config", "--out", yaml_path],
+            [rscript_path(), RUNNER, "default-config", "--out", yaml_path],
             capture_output=True, text=True, timeout=120,
         )
         # The metric list / version are read from the sidecar JSON file (not stdout,
